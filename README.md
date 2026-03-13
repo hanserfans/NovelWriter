@@ -7,7 +7,7 @@
 - 📚 项目管理：多项目管理、分卷分章管理
 - ✍️ 富文本编辑器：专业的章节编辑器，支持实时字数统计
 - 🎭 知识库：角色、场景、情节线、世界观设定管理
-- 🤖 AI 助手：集成 OpenAI 和 Claude API，提供续写、润色等智能写作辅助
+- 🤖 AI 助手：集成 OpenAI 和 Claude API，提供续写、润色、审查、格式整理等智能写作辅助
 - 💾 数据安全：本地 SQLite 数据库，自动备份
 - 📤 导出功能：支持导出为 TXT、Word、PDF 格式
 
@@ -46,11 +46,37 @@ npm run dev
 npm run build
 ```
 
-## 打包 macOS 应用
+## 打包应用
+
+### macOS
 
 ```bash
 npm run build:mac
 ```
+
+### Windows
+
+```bash
+npm run build:win
+```
+
+### Linux
+
+```bash
+npm run build:linux
+```
+
+### 所有平台
+
+```bash
+npm run build:all
+```
+
+详细的打包说明请查看 [PACKAGING.md](./PACKAGING.md)
+
+## 用户指南
+
+查看 [USER_GUIDE.md](./USER_GUIDE.md) 了解如何使用 NovelWriter
 
 ## 许可证
 
