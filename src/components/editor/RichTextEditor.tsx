@@ -1,7 +1,8 @@
 import { useEditor, EditorContent } from '@tiptap/react'
 import StarterKit from '@tiptap/starter-kit'
 import Underline from '@tiptap/extension-underline'
-import { Button, Space, Divider, Tooltip, Modal, Select, message, Spin, Card, List, Tag, Empty, Tabs } from 'antd'
+import { Button, Space, Divider, Tooltip, Modal, Select, message, Spin, Card, List, Tag, Empty, Tabs, Typography, Input, Dropdown, Statistic } from 'antd'
+import type { MenuProps } from 'antd'
 import {
   BoldOutlined,
   ItalicOutlined,
@@ -17,11 +18,23 @@ import {
   SaveOutlined,
   DeleteOutlined,
   HistoryOutlined,
+  ExportOutlined,
+  BarChartOutlined,
+  ClockCircleOutlined,
+  FullscreenOutlined,
+  FileTextOutlined,
+  FileWordOutlined,
+  FilePdfOutlined,
+  TagOutlined,
+  InfoCircleOutlined,
 } from '@ant-design/icons'
 import { useEffect, useState } from 'react'
 import { ipcClient } from '../../lib/ipc-client'
 import ReactMarkdown from 'react-markdown'
 import type { AIReview } from '../../types'
+
+const { Text } = Typography
+const { TextArea } = Input
 
 interface RichTextEditorProps {
   content: string
@@ -48,7 +61,6 @@ function RichTextEditor({
   content,
   onChange,
   onWordCountChange,
-  placeholder = '开始写作...',
   editable = true,
   projectId,
   chapterId,
@@ -62,6 +74,9 @@ function RichTextEditor({
   const [reviewResult, setReviewResult] = useState('')
   const [savedReviews, setSavedReviews] = useState<AIReview[]>([])
   const [activeTab, setActiveTab] = useState<'new' | 'history'>('new')
+  const [wordCount, setWordCount] = useState(0)
+  const [statsModalVisible, setStatsModalVisible] = useState(false)
+  const [timelineModalVisible, setTimelineModalVisible] = useState(false)
 
   const editor = useEditor({
     extensions: [StarterKit, Underline],
@@ -72,21 +87,23 @@ function RichTextEditor({
       onChange(html)
 
       // Calculate word count
+      const text = editor.getText()
+      const chineseChars = (text.match(/[\u4e00-\u9fa5]/g) || []).length
+      const englishWords = text
+        .replace(/[\u4e00-\u9fa5]/g, ' ')
+        .split(/\s+/)
+        .filter((word) => word.length > 0).length
+      const count = chineseChars + englishWords
+
+      setWordCount(count)
       if (onWordCountChange) {
-        const text = editor.getText()
-        const chineseChars = (text.match(/[\u4e00-\u9fa5]/g) || []).length
-        const englishWords = text
-          .replace(/[\u4e00-\u9fa5]/g, ' ')
-          .split(/\s+/)
-          .filter((word) => word.length > 0).length
-        onWordCountChange(chineseChars + englishWords)
+        onWordCountChange(count)
       }
     },
     editorProps: {
       attributes: {
-        class:
-          'prose prose-lg max-w-none focus:outline-none min-h-[400px] px-4 py-3 text-gray-800',
-        placeholder: placeholder,
+        class: 'prose-editor',
+        style: 'outline: none; min-height: 500px; width: 100%;',
       },
     },
   })
@@ -115,7 +132,9 @@ function RichTextEditor({
     }
 
     editor.on('selectionUpdate', handleSelection)
-    return () => editor.off('selectionUpdate', handleSelection)
+    return () => {
+      editor.off('selectionUpdate', handleSelection)
+    }
   }, [editor])
 
   // Load saved reviews when modal opens
@@ -129,9 +148,12 @@ function RichTextEditor({
     if (!chapterId) return
     try {
       const reviews = await ipcClient.getAIReviewsByChapter(chapterId)
-      setSavedReviews(reviews as AIReview[])
+      console.log('Loaded reviews:', reviews)
+      setSavedReviews((reviews as AIReview[]) || [])
     } catch (error) {
       console.error('Failed to load reviews:', error)
+      message.error('加载审查记录失败')
+      setSavedReviews([])
     }
   }
 
@@ -148,6 +170,75 @@ function RichTextEditor({
     editor.chain().focus().toggleHeading({ level }).run()
   }
 
+  // Export functions
+  const handleExport = async (format: 'txt' | 'docx' | 'pdf') => {
+    try {
+      message.loading({ content: `正在导出为${format.toUpperCase()}格式...`, key: 'export' })
+
+      if (!projectId || !chapterId) {
+        message.error({ content: '无法导出：缺少项目或章节信息', key: 'export' })
+        return
+      }
+
+      const result = await ipcClient.exportChapter(chapterId, format)
+      message.success({ content: `导出成功！文件已保存到：${result}`, key: 'export', duration: 5 })
+    } catch (error: any) {
+      console.error('Export error:', error)
+
+      // 用户取消导出不应该显示错误
+      if (error.message?.includes('取消')) {
+        message.info({ content: '已取消导出', key: 'export', duration: 2 })
+      } else {
+        message.error({
+          content: `导出失败：${error.message || '未知错误'}`,
+          key: 'export',
+          duration: 5
+        })
+      }
+    }
+  }
+
+  // Get statistics
+  const getStatistics = () => {
+    if (!editor) return null
+
+    const text = editor.getText()
+    const paragraphs = editor.getHTML().split(/<\/p>|<br>/).filter(p => p.trim()).length
+    const sentences = text.split(/[。！？\n]/).filter(s => s.trim()).length
+    const readingTime = Math.ceil(wordCount / 400) // 假设每分钟阅读400字
+
+    return {
+      wordCount,
+      chineseChars: (text.match(/[\u4e00-\u9fa5]/g) || []).length,
+      englishWords: text.replace(/[\u4e00-\u9fa5]/g, ' ').split(/\s+/).filter(w => w).length,
+      paragraphs,
+      sentences,
+      readingTime,
+    }
+  }
+
+  // Export dropdown menu
+  const exportMenuItems: MenuProps['items'] = [
+    {
+      key: 'txt',
+      icon: <FileTextOutlined />,
+      label: '导出为 TXT',
+      onClick: () => handleExport('txt'),
+    },
+    {
+      key: 'docx',
+      icon: <FileWordOutlined />,
+      label: '导出为 Word',
+      onClick: () => handleExport('docx'),
+    },
+    {
+      key: 'pdf',
+      icon: <FilePdfOutlined />,
+      label: '导出为 PDF',
+      onClick: () => handleExport('pdf'),
+    },
+  ]
+
   const handleAIReview = async () => {
     if (!selectedText) {
       message.warning('请先选中要审查的文字')
@@ -156,6 +247,52 @@ function RichTextEditor({
 
     setAiModalVisible(true)
     setReviewResult('')
+  }
+
+  const handleAIFormat = async () => {
+    if (!selectedText) {
+      message.warning('请先选中要整理的文字')
+      return
+    }
+
+    Modal.confirm({
+      title: 'AI格式整理',
+      content: '将对选中的文字进行智能格式整理，包括段落优化、标点修正、排版美化等。是否继续？',
+      okText: '开始整理',
+      cancelText: '取消',
+      onOk: async () => {
+        const hideLoading = message.loading('AI正在整理格式...', 0)
+
+        try {
+          const prompt = `请对以下文字进行格式整理和优化：
+
+【原文】
+${selectedText}
+
+【整理要求】
+1. 优化段落划分，使段落更合理
+2. 修正标点符号错误（如中英文标点混用）
+3. 统一格式，美化排版
+4. 保持原文内容和语意不变
+5. 仅输出整理后的文字，不要添加任何说明或注释
+
+请直接输出整理后的文字：`
+
+          const result = await ipcClient.aiGenerate(prompt, '你是一位专业的文字编辑，擅长格式整理和排版优化。')
+
+          hideLoading()
+
+          // 将整理后的文字替换到编辑器中
+          if (result && editor) {
+            editor.chain().focus().insertContent(result as string).run()
+            message.success('格式整理完成')
+          }
+        } catch (error: any) {
+          hideLoading()
+          message.error(error.message || 'AI整理失败，请检查配置')
+        }
+      },
+    })
   }
 
   const executeReview = async () => {
@@ -205,10 +342,14 @@ ${selectedText}
         review_result: reviewResult,
       })
       message.success('审查结果已保存')
-      setReviewResult('')
-      loadSavedReviews()
-    } catch (error) {
-      message.error('保存失败')
+      // Don't clear the result immediately, let user see it
+      // Load the reviews list
+      if (chapterId) {
+        await loadSavedReviews()
+      }
+    } catch (error: any) {
+      console.error('Save review error:', error)
+      message.error(`保存失败: ${error.message || '未知错误'}`)
     }
   }
 
@@ -228,44 +369,62 @@ ${selectedText}
   }
 
   return (
-    <div className="border rounded-lg overflow-hidden">
-      {/* Toolbar */}
-      <div className="border-b bg-gray-50 px-4 py-2">
-        <Space size="small" wrap>
+    <div className="editor-wrapper" style={{
+      backgroundColor: '#f5f5f5',
+      padding: '32px 0',
+      minHeight: '500px'
+    }}>
+      {/* Floating Toolbar */}
+      <div className="editor-toolbar" style={{
+        background: 'white',
+        borderBottom: '1px solid #e8e8e8',
+        padding: '12px 24px',
+        marginBottom: '0',
+        boxShadow: '0 2px 8px rgba(0,0,0,0.06)',
+        position: 'sticky',
+        top: 0,
+        zIndex: 10,
+        display: 'flex',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+      }}>
+        {/* Left: Formatting Tools */}
+        <Space size="middle" wrap>
           <Tooltip title="加粗 (Ctrl+B)">
             <Button
-              type={editor.isActive('bold') ? 'primary' : 'text'}
+              type={editor.isActive('bold') ? 'primary' : 'default'}
               icon={<BoldOutlined />}
               onClick={toggleBold}
-              size="small"
+              size="middle"
             />
           </Tooltip>
 
           <Tooltip title="斜体 (Ctrl+I)">
             <Button
-              type={editor.isActive('italic') ? 'primary' : 'text'}
+              type={editor.isActive('italic') ? 'primary' : 'default'}
               icon={<ItalicOutlined />}
               onClick={toggleItalic}
-              size="small"
+              size="middle"
             />
           </Tooltip>
 
           <Tooltip title="下划线 (Ctrl+U)">
             <Button
-              type={editor.isActive('underline') ? 'primary' : 'text'}
+              type={editor.isActive('underline') ? 'primary' : 'default'}
               icon={<UnderlineOutlined />}
               onClick={toggleUnderline}
-              size="small"
+              size="middle"
             />
           </Tooltip>
 
-          <Divider type="vertical" />
+          <Divider type="vertical" style={{ height: '24px', margin: '0 8px' }} />
 
           <Tooltip title="标题1">
             <Button
-              type={editor.isActive('heading', { level: 1 }) ? 'primary' : 'text'}
+              type={editor.isActive('heading', { level: 1 }) ? 'primary' : 'default'}
               onClick={() => toggleHeading(1)}
-              size="small"
+              size="middle"
+              style={{ fontWeight: 'bold' }}
             >
               H1
             </Button>
@@ -273,9 +432,10 @@ ${selectedText}
 
           <Tooltip title="标题2">
             <Button
-              type={editor.isActive('heading', { level: 2 }) ? 'primary' : 'text'}
+              type={editor.isActive('heading', { level: 2 }) ? 'primary' : 'default'}
               onClick={() => toggleHeading(2)}
-              size="small"
+              size="middle"
+              style={{ fontWeight: 'bold' }}
             >
               H2
             </Button>
@@ -283,55 +443,122 @@ ${selectedText}
 
           <Tooltip title="标题3">
             <Button
-              type={editor.isActive('heading', { level: 3 }) ? 'primary' : 'text'}
+              type={editor.isActive('heading', { level: 3 }) ? 'primary' : 'default'}
               onClick={() => toggleHeading(3)}
-              size="small"
+              size="middle"
+              style={{ fontWeight: 'bold' }}
             >
               H3
             </Button>
           </Tooltip>
 
-          <Divider type="vertical" />
+          <Divider type="vertical" style={{ height: '24px', margin: '0 8px' }} />
 
           <Tooltip title="无序列表">
             <Button
-              type={editor.isActive('bulletList') ? 'primary' : 'text'}
+              type={editor.isActive('bulletList') ? 'primary' : 'default'}
               icon={<UnorderedListOutlined />}
               onClick={toggleBulletList}
-              size="small"
+              size="middle"
             />
           </Tooltip>
 
           <Tooltip title="有序列表">
             <Button
-              type={editor.isActive('orderedList') ? 'primary' : 'text'}
+              type={editor.isActive('orderedList') ? 'primary' : 'default'}
               icon={<OrderedListOutlined />}
               onClick={toggleOrderedList}
-              size="small"
+              size="middle"
             />
           </Tooltip>
 
           {showAIToolbar && (
             <>
-              <Divider type="vertical" />
-              <Tooltip title="AI审查">
-                <Button
-                  type="primary"
-                  icon={<RobotOutlined />}
-                  onClick={handleAIReview}
-                  size="small"
-                >
-                  AI审查
-                </Button>
-              </Tooltip>
+              <Divider type="vertical" style={{ height: '24px', margin: '0 8px' }} />
+              <Button
+                type="primary"
+                icon={<FormatPainterOutlined />}
+                onClick={handleAIFormat}
+                size="middle"
+                style={{
+                  background: 'linear-gradient(135deg, #13c2c2 0%, #36cfc9 100%)',
+                  border: 'none',
+                  fontWeight: 500,
+                }}
+              >
+                AI整理
+              </Button>
+              <Button
+                type="primary"
+                icon={<RobotOutlined />}
+                onClick={handleAIReview}
+                size="middle"
+                style={{
+                  background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+                  border: 'none',
+                  fontWeight: 500,
+                }}
+              >
+                AI审查
+              </Button>
             </>
           )}
         </Space>
+
+        {/* Right: Function Tools */}
+        <Space size="small">
+          <Tooltip title="统计信息">
+            <Button
+              icon={<BarChartOutlined />}
+              onClick={() => setStatsModalVisible(true)}
+              size="middle"
+            >
+              统计
+            </Button>
+          </Tooltip>
+
+          <Tooltip title="时间线标记">
+            <Button
+              icon={<ClockCircleOutlined />}
+              onClick={() => setTimelineModalVisible(true)}
+              size="middle"
+            >
+              时间线
+            </Button>
+          </Tooltip>
+
+          <Tooltip title="导出">
+            <Dropdown menu={{ items: exportMenuItems }} placement="bottomRight">
+              <Button icon={<ExportOutlined />} size="middle">
+                导出
+              </Button>
+            </Dropdown>
+          </Tooltip>
+        </Space>
       </div>
 
-      {/* Editor */}
-      <div className="bg-white">
-        <EditorContent editor={editor} />
+      {/* Paper-like Editor Area */}
+      <div style={{
+        maxWidth: '900px',
+        margin: '0 auto',
+        padding: '0 32px',
+      }}>
+        <div style={{
+          background: 'white',
+          minHeight: '600px',
+          padding: '48px 64px',
+          boxShadow: '0 2px 8px rgba(0,0,0,0.08), 0 8px 24px rgba(0,0,0,0.12)',
+          borderRadius: '4px',
+        }}>
+          <EditorContent
+            editor={editor}
+            style={{
+              fontSize: '16px',
+              lineHeight: '1.8',
+              color: '#333',
+            }}
+          />
+        </div>
       </div>
 
       {/* AI Review Modal */}
@@ -457,14 +684,11 @@ ${selectedText}
                         </Button>
                       }
                     >
-                      <ReactMarkdown
-                        style={{
-                          lineHeight: 1.8,
-                          fontSize: 14,
-                        }}
-                      >
-                        {reviewResult}
-                      </ReactMarkdown>
+                      <div style={{ lineHeight: 1.8, fontSize: 14 }}>
+                        <ReactMarkdown>
+                          {reviewResult}
+                        </ReactMarkdown>
+                      </div>
                     </Card>
                   )}
                 </>
@@ -479,60 +703,71 @@ ${selectedText}
                 </span>
               ),
               children: (
-                <div style={{ maxHeight: 600, overflow: 'auto' }}>
+                <div style={{ minHeight: 700, maxHeight: 800, overflow: 'auto' }}>
                   {savedReviews.length === 0 ? (
                     <Empty description="暂无审查记录" />
                   ) : (
                     <List
                       dataSource={savedReviews}
-                      renderItem={(review) => (
-                        <List.Item
-                          actions={[
-                            <Button
-                              key="delete"
-                              danger
-                              size="small"
-                              icon={<DeleteOutlined />}
-                              onClick={() => deleteReview(review.id)}
-                            >
-                              删除
-                            </Button>,
-                          ]}
-                        >
-                          <List.Item.Meta
-                            title={
-                              <Space>
-                                <Tag color="blue">{AI_REVIEW_TYPES.find(t => t.value === review.review_type)?.label || review.review_type}</Tag>
-                                <Text type="secondary" style={{ fontSize: 12 }}>
-                                  {new Date(review.created_at).toLocaleString('zh-CN')}
-                                </Text>
-                              </Space>
-                            }
-                            description={
-                              <div>
-                                <div style={{
-                                  background: '#f5f5f5',
-                                  padding: 8,
-                                  borderRadius: 4,
-                                  marginBottom: 8,
-                                  fontSize: 12,
-                                }}>
-                                  <Text type="secondary">原文：</Text>
-                                  {review.selected_text.substring(0, 100)}...
+                      renderItem={(review) => {
+                        const reviewTypeLabel = AI_REVIEW_TYPES.find(t => t.value === review.review_type)?.label || review.review_type
+
+                        return (
+                          <List.Item
+                            style={{ padding: '16px 0' }}
+                            actions={[
+                              <Button
+                                key="delete"
+                                danger
+                                size="small"
+                                icon={<DeleteOutlined />}
+                                onClick={() => deleteReview(review.id)}
+                              >
+                                删除
+                              </Button>,
+                            ]}
+                          >
+                            <List.Item.Meta
+                              title={
+                                <Space>
+                                  <Tag color="blue">{reviewTypeLabel}</Tag>
+                                  <span style={{ fontSize: 12, color: '#666' }}>
+                                    {new Date(review.created_at).toLocaleString('zh-CN')}
+                                  </span>
+                                </Space>
+                              }
+                              description={
+                                <div>
+                                  <div style={{
+                                    background: '#f5f5f5',
+                                    padding: 12,
+                                    borderRadius: 4,
+                                    marginBottom: 12,
+                                    fontSize: 13,
+                                  }}>
+                                    <span style={{ color: '#999' }}>原文：</span>
+                                    {review.selected_text ? review.selected_text.substring(0, 150) : ''}...
+                                  </div>
+                                  <div style={{
+                                    maxHeight: 400,
+                                    overflow: 'auto',
+                                    padding: 16,
+                                    background: '#fff',
+                                    border: '1px solid #e8e8e8',
+                                    borderRadius: 4,
+                                    fontSize: 14,
+                                    lineHeight: 1.8,
+                                  }}>
+                                    <ReactMarkdown>
+                                      {review.review_result || ''}
+                                    </ReactMarkdown>
+                                  </div>
                                 </div>
-                                <div style={{
-                                  maxHeight: 200,
-                                  overflow: 'auto',
-                                }}>
-                                  <ReactMarkdown>
-                                    {review.review_result}
-                                  </ReactMarkdown>
-                                </div>
-                              </div>
-                            }
-                          />
-                        </List.Item>
-                      )}
+                              }
+                            />
+                          </List.Item>
+                        )
+                      }}
                     />
                   )}
                 </div>
@@ -540,6 +775,151 @@ ${selectedText}
             },
           ]}
         />
+      </Modal>
+
+      {/* Statistics Modal */}
+      <Modal
+        title={
+          <Space>
+            <BarChartOutlined />
+            文章统计
+          </Space>
+        }
+        open={statsModalVisible}
+        onCancel={() => setStatsModalVisible(false)}
+        footer={null}
+        width={600}
+      >
+        {(() => {
+          const stats = getStatistics()
+          if (!stats) return null
+
+          return (
+            <div style={{ padding: '24px 0' }}>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '24px' }}>
+                <Card>
+                  <Statistic
+                    title="总字数"
+                    value={stats.wordCount}
+                    suffix="字"
+                    valueStyle={{ color: '#1890ff', fontSize: '32px' }}
+                  />
+                </Card>
+                <Card>
+                  <Statistic
+                    title="中文字符"
+                    value={stats.chineseChars}
+                    suffix="字"
+                    valueStyle={{ color: '#52c41a', fontSize: '32px' }}
+                  />
+                </Card>
+                <Card>
+                  <Statistic
+                    title="英文单词"
+                    value={stats.englishWords}
+                    suffix="词"
+                    valueStyle={{ color: '#722ed1', fontSize: '32px' }}
+                  />
+                </Card>
+                <Card>
+                  <Statistic
+                    title="段落数"
+                    value={stats.paragraphs}
+                    suffix="段"
+                    valueStyle={{ color: '#fa8c16', fontSize: '32px' }}
+                  />
+                </Card>
+                <Card>
+                  <Statistic
+                    title="句子数"
+                    value={stats.sentences}
+                    suffix="句"
+                    valueStyle={{ color: '#eb2f96', fontSize: '32px' }}
+                  />
+                </Card>
+                <Card>
+                  <Statistic
+                    title="预计阅读时间"
+                    value={stats.readingTime}
+                    suffix="分钟"
+                    valueStyle={{ color: '#13c2c2', fontSize: '32px' }}
+                  />
+                </Card>
+              </div>
+
+              <Divider />
+
+              <div style={{ background: '#f5f5f5', padding: 16, borderRadius: 8 }}>
+                <div style={{ marginBottom: 8, fontWeight: 600 }}>
+                  <InfoCircleOutlined style={{ marginRight: 8 }} />
+                  阅读建议
+                </div>
+                <Text type="secondary">
+                  {stats.wordCount < 2000
+                    ? '本文篇幅较短，适合快速阅读。建议增加更多细节描写。'
+                    : stats.wordCount < 5000
+                    ? '本文篇幅适中，节奏把握较好。'
+                    : '本文篇幅较长，建议检查是否有冗余内容，保持情节紧凑。'}
+                </Text>
+              </div>
+            </div>
+          )
+        })()}
+      </Modal>
+
+      {/* Timeline Modal */}
+      <Modal
+        title={
+          <Space>
+            <ClockCircleOutlined />
+            时间线标记
+          </Space>
+        }
+        open={timelineModalVisible}
+        onCancel={() => setTimelineModalVisible(false)}
+        onOk={() => {
+          message.success('时间线标记已保存')
+          setTimelineModalVisible(false)
+        }}
+        okText="保存"
+        cancelText="取消"
+        width={700}
+      >
+        <div style={{ padding: '24px 0' }}>
+          <div style={{ marginBottom: 16 }}>
+            <div style={{ marginBottom: 8, fontWeight: 600 }}>时间点名称</div>
+            <Input
+              placeholder="例如：初遇、离别、重逢"
+              size="large"
+            />
+          </div>
+
+          <div style={{ marginBottom: 16 }}>
+            <div style={{ marginBottom: 8, fontWeight: 600 }}>时间描述</div>
+            <TextArea
+              rows={4}
+              placeholder="描述这个时间点发生的事件..."
+            />
+          </div>
+
+          <div style={{ marginBottom: 16 }}>
+            <div style={{ marginBottom: 8, fontWeight: 600 }}>时间类型</div>
+            <Select style={{ width: '100%' }} placeholder="选择时间类型">
+              <Select.Option value="plot">情节节点</Select.Option>
+              <Select.Option value="character">角色发展</Select.Option>
+              <Select.Option value="world">世界观事件</Select.Option>
+              <Select.Option value="custom">自定义</Select.Option>
+            </Select>
+          </div>
+
+          <Divider />
+
+          <div style={{ marginBottom: 8, fontWeight: 600 }}>
+            <TagOutlined style={{ marginRight: 8 }} />
+            已有时间线标记
+          </div>
+          <Empty description="暂无时间线标记" image={Empty.PRESENTED_IMAGE_SIMPLE} />
+        </div>
       </Modal>
     </div>
   )

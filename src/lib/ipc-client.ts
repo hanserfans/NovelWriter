@@ -432,6 +432,15 @@ class IpcClient {
   async deleteAIReview(id: number) {
     return this.invoke('aiReview:delete', id)
   }
+
+  // Export APIs
+  async exportChapter(chapterId: number, format: 'txt' | 'docx' | 'pdf') {
+    return this.invoke('export:chapter', chapterId, format)
+  }
+
+  async exportProject(projectId: number, format: 'txt' | 'docx' | 'pdf') {
+    return this.invoke('export:project', projectId, format)
+  }
 }
 
 export const ipcClient = new IpcClient()

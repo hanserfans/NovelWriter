@@ -40,3 +40,81 @@ code {
 ::-webkit-scrollbar-thumb:hover {
   background: #555;
 }
+
+/* Beautiful Editor Styles */
+.prose-editor {
+  font-size: 16px;
+  line-height: 1.8;
+  color: #333;
+  font-family: 'Georgia', 'Songti SC', 'SimSun', serif;
+}
+
+.prose-editor p {
+  margin-bottom: 1em;
+  text-indent: 2em;
+  text-align: justify;
+}
+
+.prose-editor h1 {
+  font-size: 28px;
+  font-weight: bold;
+  margin: 1.5em 0 1em 0;
+  color: #1a1a1a;
+  text-indent: 0;
+}
+
+.prose-editor h2 {
+  font-size: 24px;
+  font-weight: bold;
+  margin: 1.3em 0 0.8em 0;
+  color: #2a2a2a;
+  text-indent: 0;
+}
+
+.prose-editor h3 {
+  font-size: 20px;
+  font-weight: bold;
+  margin: 1em 0 0.6em 0;
+  color: #3a3a3a;
+  text-indent: 0;
+}
+
+.prose-editor ul,
+.prose-editor ol {
+  margin: 1em 0;
+  padding-left: 2em;
+  text-indent: 0;
+}
+
+.prose-editor li {
+  margin-bottom: 0.5em;
+  text-indent: 0;
+}
+
+.prose-editor strong {
+  font-weight: 600;
+  color: #1a1a1a;
+}
+
+.prose-editor em {
+  font-style: italic;
+}
+
+.prose-editor p:first-child {
+  text-indent: 0;
+}
+
+/* Placeholder styles */
+.prose-editor p.is-editor-empty:first-child::before {
+  content: attr(data-placeholder);
+  float: left;
+  color: #adb5bd;
+  pointer-events: none;
+  height: 0;
+  text-indent: 0;
+}
+
+/* Selection styles */
+.prose-editor ::selection {
+  background: #b4d5fe;
+}

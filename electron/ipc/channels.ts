@@ -139,6 +139,8 @@ export const IPC_CHANNELS = {
   AI_REVIEW_DELETE: 'aiReview:delete',
 
   // Export channels
+  EXPORT_CHAPTER: 'export:chapter',
+  EXPORT_PROJECT: 'export:project',
   EXPORT_TXT: 'export:txt',
   EXPORT_DOCX: 'export:docx',
   EXPORT_PDF: 'export:pdf',

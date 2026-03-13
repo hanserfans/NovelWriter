@@ -589,4 +589,329 @@ export function registerIpcHandlers(): void {
     aiReviewRepo.delete(id)
     return { success: true }
   }) as IpcHandler)
+
+  // Export handlers
+  ipcMain.handle(IPC_CHANNELS.EXPORT_CHAPTER, (async (_event, chapterId: number, format: 'txt' | 'docx' | 'pdf') => {
+    try {
+      console.log(`IPC: Exporting chapter ${chapterId} as ${format}`)
+
+      const chapter = chapterRepo.findById(chapterId)
+      if (!chapter) {
+        throw new Error('Chapter not found')
+      }
+
+      const { dialog } = require('electron')
+      const fs = require('fs')
+
+      // Show save dialog
+      const result = await dialog.showSaveDialog({
+        title: `导出章节: ${chapter.title}`,
+        defaultPath: `${chapter.title}.${format === 'docx' ? 'docx' : format}`,
+        filters: [
+          { name: format.toUpperCase(), extensions: [format === 'docx' ? 'docx' : format] },
+        ],
+      })
+
+      if (result.canceled || !result.filePath) {
+        console.log('IPC: Export cancelled by user')
+        throw new Error('用户取消了导出')
+      }
+
+      const filePath = result.filePath
+      console.log(`IPC: Exporting to ${filePath}`)
+
+      // Export based on format
+      if (format === 'txt') {
+        // Export as plain text
+        console.log('IPC: Exporting as TXT')
+        const textContent = chapter.content
+          ? chapter.content.replace(/<[^>]*>/g, '').replace(/&nbsp;/g, ' ').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&')
+          : ''
+        // 使用UTF-8 BOM确保正确识别编码
+        const BOM = '\uFEFF'
+        fs.writeFileSync(filePath, BOM + textContent, 'utf-8')
+        console.log('IPC: TXT export completed')
+      } else if (format === 'docx') {
+        // Export as Word document
+        console.log('IPC: Exporting as DOCX')
+        const { Document, Packer, Paragraph, TextRun, HeadingLevel } = require('docx')
+
+        const doc = new Document({
+          sections: [{
+            properties: {},
+            children: [
+              new Paragraph({
+                text: chapter.title,
+                heading: HeadingLevel.HEADING_1,
+              }),
+              new Paragraph({
+                children: [
+                  new TextRun({
+                    text: chapter.content ? chapter.content.replace(/<[^>]*>/g, '').replace(/&nbsp;/g, ' ').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&') : '',
+                    font: 'Arial Unicode MS', // 支持中文
+                  }),
+                ],
+              }),
+            ],
+          }],
+        })
+
+        const buffer = await Packer.toBuffer(doc)
+        fs.writeFileSync(filePath, buffer)
+        console.log('IPC: DOCX export completed')
+      } else if (format === 'pdf') {
+        // Export as PDF
+        console.log('IPC: Exporting as PDF')
+
+        // 使用html-pdf替代pdfmake以更好地支持中文
+        const fs = require('fs')
+        const path = require('path')
+        const os = require('os')
+
+        // 清理HTML转义字符
+        const cleanContent = chapter.content
+          ? chapter.content.replace(/&nbsp;/g, ' ').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&')
+          : ''
+
+        // 创建HTML内容
+        const htmlContent = `
+          <!DOCTYPE html>
+          <html>
+          <head>
+            <meta charset="UTF-8">
+            <style>
+              body {
+                font-family: "PingFang SC", "Microsoft YaHei", "Heiti SC", sans-serif;
+                font-size: 12pt;
+                line-height: 1.8;
+                padding: 40px;
+              }
+              h1 {
+                font-size: 18pt;
+                font-weight: bold;
+                margin-bottom: 20px;
+                text-align: center;
+              }
+              p {
+                text-indent: 2em;
+                margin-bottom: 1em;
+              }
+            </style>
+          </head>
+          <body>
+            <h1>${chapter.title}</h1>
+            <div>${cleanContent}</div>
+          </body>
+          </html>
+        `
+
+        // 使用electron的打印功能生成PDF
+        const { BrowserWindow } = require('electron')
+        const pdfWindow = new BrowserWindow({
+          width: 800,
+          height: 600,
+          show: false,
+          webPreferences: {
+            nodeIntegration: false,
+            contextIsolation: true,
+          },
+        })
+
+        // 加载HTML内容
+        await pdfWindow.loadURL(`data:text/html;charset=UTF-8,${encodeURIComponent(htmlContent)}`)
+
+        // 生成PDF
+        const pdfData = await pdfWindow.webContents.printToPDF({
+          pageSize: 'A4',
+          printBackground: true,
+          margins: {
+            top: 0.5,
+            bottom: 0.5,
+            left: 0.5,
+            right: 0.5,
+          },
+        })
+
+        pdfWindow.close()
+
+        // 写入PDF文件
+        fs.writeFileSync(filePath, pdfData)
+        console.log('IPC: PDF export completed')
+      }
+
+      console.log(`IPC: Chapter exported successfully to ${filePath}`)
+      return filePath
+    } catch (error: any) {
+      console.error('IPC: Export chapter failed:', error)
+      throw error
+    }
+  }) as IpcHandler)
+
+  ipcMain.handle(IPC_CHANNELS.EXPORT_PROJECT, (async (_event, projectId: number, format: 'txt' | 'docx' | 'pdf') => {
+    try {
+      console.log(`IPC: Exporting project ${projectId} as ${format}`)
+
+      const project = projectRepo.findById(projectId)
+      if (!project) {
+        throw new Error('Project not found')
+      }
+
+      const chapters = chapterRepo.findByProject(projectId)
+
+      const { dialog } = require('electron')
+      const fs = require('fs')
+
+      // Show save dialog
+      const result = await dialog.showSaveDialog({
+        title: `导出项目: ${project.title}`,
+        defaultPath: `${project.title}.${format === 'docx' ? 'docx' : format}`,
+        filters: [
+          { name: format.toUpperCase(), extensions: [format === 'docx' ? 'docx' : format] },
+        ],
+      })
+
+      if (result.canceled || !result.filePath) {
+        throw new Error('Export cancelled')
+      }
+
+      const filePath = result.filePath
+
+      // Combine all chapters
+      let fullContent = ''
+
+      if (format === 'txt') {
+        chapters.forEach((chapter: any) => {
+          fullContent += `${chapter.title}\n\n`
+          fullContent += chapter.content
+            ? chapter.content.replace(/<[^>]*>/g, '').replace(/&nbsp;/g, ' ').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&')
+            : ''
+          fullContent += '\n\n\n'
+        })
+        // 使用UTF-8 BOM确保正确识别编码
+        const BOM = '\uFEFF'
+        fs.writeFileSync(filePath, BOM + fullContent, 'utf-8')
+      } else if (format === 'docx') {
+        const { Document, Packer, Paragraph, TextRun, HeadingLevel } = require('docx')
+
+        const children: any[] = [
+          new Paragraph({
+            text: project.title,
+            heading: HeadingLevel.TITLE,
+          }),
+        ]
+
+        chapters.forEach((chapter: any) => {
+          children.push(
+            new Paragraph({
+              text: chapter.title,
+              heading: HeadingLevel.HEADING_1,
+            })
+          )
+          children.push(
+            new Paragraph({
+              children: [
+                new TextRun({
+                  text: chapter.content
+                    ? chapter.content.replace(/<[^>]*>/g, '').replace(/&nbsp;/g, ' ').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&')
+                    : '',
+                  font: 'Arial Unicode MS',
+                }),
+              ],
+            })
+          )
+        })
+
+        const doc = new Document({
+          sections: [{
+            properties: {},
+            children,
+          }],
+        })
+
+        const buffer = await Packer.toBuffer(doc)
+        fs.writeFileSync(filePath, buffer)
+      } else if (format === 'pdf') {
+        // 使用Electron的打印功能生成PDF
+        const { BrowserWindow } = require('electron')
+
+        // 构建HTML内容
+        let chaptersHtml = ''
+        chapters.forEach((chapter: any) => {
+          const cleanContent = chapter.content
+            ? chapter.content.replace(/&nbsp;/g, ' ').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&')
+            : ''
+          chaptersHtml += `<h2>${chapter.title}</h2><div>${cleanContent}</div><div style="page-break-after: always;"></div>`
+        })
+
+        const htmlContent = `
+          <!DOCTYPE html>
+          <html>
+          <head>
+            <meta charset="UTF-8">
+            <style>
+              body {
+                font-family: "PingFang SC", "Microsoft YaHei", "Heiti SC", sans-serif;
+                font-size: 12pt;
+                line-height: 1.8;
+                padding: 40px;
+              }
+              h1 {
+                font-size: 24pt;
+                font-weight: bold;
+                margin-bottom: 30px;
+                text-align: center;
+              }
+              h2 {
+                font-size: 18pt;
+                font-weight: bold;
+                margin-top: 30px;
+                margin-bottom: 20px;
+              }
+              p {
+                text-indent: 2em;
+                margin-bottom: 1em;
+              }
+            </style>
+          </head>
+          <body>
+            <h1>${project.title}</h1>
+            ${chaptersHtml}
+          </body>
+          </html>
+        `
+
+        const pdfWindow = new BrowserWindow({
+          width: 800,
+          height: 600,
+          show: false,
+          webPreferences: {
+            nodeIntegration: false,
+            contextIsolation: true,
+          },
+        })
+
+        await pdfWindow.loadURL(`data:text/html;charset=UTF-8,${encodeURIComponent(htmlContent)}`)
+
+        const pdfData = await pdfWindow.webContents.printToPDF({
+          pageSize: 'A4',
+          printBackground: true,
+          margins: {
+            top: 0.5,
+            bottom: 0.5,
+            left: 0.5,
+            right: 0.5,
+          },
+        })
+
+        pdfWindow.close()
+        fs.writeFileSync(filePath, pdfData)
+      }
+
+      console.log(`IPC: Project exported successfully to ${filePath}`)
+      return filePath
+    } catch (error: any) {
+      console.error('IPC: Export project failed:', error)
+      throw error
+    }
+  }) as IpcHandler)
 }
